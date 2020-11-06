@@ -14,7 +14,7 @@ export default class TransactionScreen extends React.Component {
             scanned : false,
             scannedBookId : '',
             scannedStudentId : '',
-            buttonState : 'normal'
+            buttonState : 'normal',
         }
     }
 
@@ -26,8 +26,90 @@ export default class TransactionScreen extends React.Component {
             status === "granted" is false when user has not granted the permission */
             hasCameraPermissions : status === "granted",
             buttonState : id,
-            scanned : 'false'
+            scanned : false
         })
+    }
+
+    checkStudentEligibilityForBookIssue= async()=>{
+        const studentRef = await db.collection("students").where("studentId","==",this.state.scannedStudentId).get();
+        var isStudentEligible = ""
+
+        if(studentRef.docs.length == 0){
+            this.setState({
+                scannedStudentId: '',
+                scannedBookId: ''
+            })
+            isStudentEligible = false;
+            Alert.alert("The student id doesn't exist in the database");
+        }
+
+        else{
+            studentRef.docs.map((doc)=>{
+                var student = doc.data();
+                if(student.numberOfBooksIssued < 2){
+                    isStudentEligible = true;
+                }
+
+                else{
+                    isStudentEligible = false;
+                    Alert.alert("The student has already issued 2 books");
+                    this.setState({
+                        scannedBookId: '',
+                        scannedStudentId: ''
+                    })
+                }
+            })
+        }
+
+        return isStudentEligible;
+    }
+
+    checkStudentEligibilityForReturn= async()=>{
+        const transactionRef = await db.collection("transactions").where("bookId","==",this.state.scannedBookId).limit(1).get();
+        var isStudentEligible = ""
+
+        transactionRef.docs.map((doc)=>{
+            var lastBookTransaction = doc.data();
+            if(lastBookTransaction.studentId === this.state.scannedStudentId){
+                isStudentEligible = true;
+            }
+
+            else{
+                isStudentEligible = false;
+                Alert.alert("The book wasn't issued by this student");
+                this.setState({
+                    scannedBookId: '',
+                    scannedStudentId: ''
+                })
+            }
+        })
+
+        return isStudentEligible;
+    }
+
+    checkBookEligibility= async()=>{
+        const bookRef = await db.collection("books").where("bookId","==",this.state.scannedBookId).get();
+        var transactionType = ""
+
+        if(bookRef.docs.length == 0){
+            transactionType = false;
+            console.log(bookRef.docs.length);
+        }
+
+        else{
+            bookRef.docs.map((doc)=>{
+                var book = doc.data();
+                if(book.bookAvailability){
+                    transactionType = "Issue"
+                }
+
+                else{
+                    transactionType = "Return"
+                }
+            })
+        }
+
+        return transactionType;
     }
 
     handleBarCodeScanned = async({type,data})=>{
@@ -51,26 +133,38 @@ export default class TransactionScreen extends React.Component {
     }
 
     handleTransaction=async()=>{
-        var transactionMessage = null;
-        db.collection("books").doc(this.state.scannedBookId).get().then((doc)=>{
-            var book = doc.data();
-            if(book.bookAvailability){
-                this.initiateBookIssue();
-                transactionMessage = "Book Issued";
-                //Alert.alert(transactionMessage);
-                ToastAndroid.show(transactionMessage,ToastAndroid.LONG);
-            }
+        //verify if student is eligible for book issue or return
+        //student exists in the database
+        //issue: no of books issued <2
+        //issue: verify book availability
+        //return: last transaction => book issued by the same student id
+        var transactionType = await this.checkBookEligibility();
 
-            else{
-                this.initiateBookReturn();
-                transactionMessage = "Book Returned";
-                //Alert.alert(transactionMessage);
-                ToastAndroid.show(transactionMessage,ToastAndroid.LONG);
+        if(!transactionType){
+            Alert.alert("This book doesn't exist in the library database");
+            this.setState({
+                scannedStudentId: '',
+                scannedBookId: ''
+            })
+        }
+
+        else if(transactionType === "Issue"){
+            var isStudentEligible = await this.checkStudentEligibilityForBookIssue();
+
+            if(isStudentEligible){
+                this.initiateBookIssue();
+                Alert.alert("Book issued to the student");
             }
-        })
-        this.setState({
-            transactionMessage:transactionMessage
-        })
+        }
+
+        else{
+            var isStudentEligible = await this.checkStudentEligibilityForReturn();
+
+            if(isStudentEligible){
+                this.initiateBookReturn();
+                Alert.alert("Book returned to the library");
+            }
+        }
     }
 
     initiateBookIssue=async()=>{
@@ -139,7 +233,7 @@ export default class TransactionScreen extends React.Component {
                             source = {require("../assets/booklogo.jpg")}
                             style = {{width:200, height:200}}
                         />
-                        <Text style = {{textAlign:'center', fontSize:30}}>Willy</Text>
+                        <Text style = {{textAlign:'center', fontSize:30}}>Wily</Text>
                     </View>
 
                     <View style = {styles.inputView}>
